@@ -392,7 +392,7 @@ function getWorker(){
       worker = await Tesseract.createWorker('eng');
       return worker;
     })();
-    workerReady.then(() => setStatus('準備OK。スクショを入れてください。', 'ok'))
+    workerReady.then(() => setStatus('', ''))   // 準備できたら文字は消す（準備中・読み取り中・エラーのときだけ出す）
                .catch(e => { setStatus(e.message, 'err'); workerReady = null; });
   }
   return workerReady;
