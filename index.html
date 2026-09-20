@@ -181,6 +181,10 @@ button.danger,button.mini.danger{background:var(--danger);color:#fff}
 .tbl td.sum,.tbl th.sum{background:var(--accent-w);color:var(--accent)}
 .tbl tr.total td{background:var(--head);color:var(--ink)}
 .tbl tr.today td.day{outline:2px solid var(--accent);outline-offset:-2px}
+/* ===== キャンプチケット・フィールドのチェック ===== */
+.opts{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;margin-top:12px}
+.opts .chk{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:14px}
+.opts .lbl{color:var(--sub)}
 .memo{margin-top:10px}
 .memo label{display:block;color:var(--sub);margin-bottom:4px}
 
@@ -259,8 +263,16 @@ button.danger,button.mini.danger{background:var(--danger);color:#fff}
   <div class="tblwrap"><table class="tbl" id="tbl"></table></div>
   <p class="note">数字のマスをタップすると、直したり消したりできます。</p>
 
+  <div class="opts">
+    <label class="chk"><input type="checkbox" id="camp"> キャンプチケットあり</label>
+    <span class="small lbl">フィールド：</span>
+    <label class="chk"><input type="checkbox" id="fieldW" data-field="ワカクサ"> ワカクサ</label>
+    <label class="chk"><input type="checkbox" id="fieldEX" data-field="ワカクサEX"> ワカクサEX</label>
+  </div>
+  <p class="note">チェックした内容は「表を画像で保存」の画像の右上に出ます。</p>
+
   <div class="memo">
-    <label for="memo">メモ（例：キャンチケあり）</label>
+    <label for="memo">メモ（自由に）</label>
     <textarea id="memo" placeholder="この週のメモ"></textarea>
   </div>
 
@@ -378,8 +390,6 @@ function getWorker(){
     workerReady = (async () => {
       if (typeof Tesseract === 'undefined') throw new Error('読み取りライブラリが読み込めませんでした。ネットにつながっているか確認してください。');
       worker = await Tesseract.createWorker('eng');
-      // 数字・カンマ・x だけを探させると誤読が減る
-      await worker.setParameters({ tessedit_char_whitelist: '0123456789,xX×' });
       return worker;
     })();
     workerReady.then(() => setStatus('準備OK。スクショを入れてください。', 'ok'))
@@ -422,17 +432,37 @@ function preprocess(img, fromRatio){
 }
 
 // OCR の結果テキストから「x3,546」の数字部分を取り出す
-function pickNumber(text){
-  // 「x3,546」のように x のすぐ後ろ（同じ行）にカンマ付きの数字があるものを最優先
-  let m = text.match(/[xX×] *(\d{1,3}(?:,\d{3})+)/);
-  if (m) return parseInt(m[1].replace(/,/g,''), 10);
-  // カンマなし（3桁の数など）
-  m = text.match(/[xX×] *(\d{3,6})(?![\d,])/);
-  if (m) return parseInt(m[1], 10);
-  // x が読めなかったときの保険：カンマ付きの数字を探す
-  m = text.match(/(?:^|[^\d])(\d{1,3}(?:,\d{3})+)(?![\d])/);
-  if (m) return parseInt(m[1].replace(/,/g,''), 10);
-  return null;
+const WHITELIST = '0123456789,xX×';   // 1回目は「数字・カンマ・x」だけを探させる
+const longest = arr => arr.sort((a,b) => b.length - a.length)[0];
+
+// 1回目の結果から「x3,546」のようなカンマ付きの数を取り出す（ゲームは1,000以上には必ずカンマを付ける）
+function pickComma(text){
+  const m = text.match(/[xX×] *(\d{1,3}(?:,\d{3})+)/);
+  return m ? parseInt(m[1].replace(/,/g,''), 10) : null;
+}
+// カンマなしの数字の並び（x の後ろ）を全部集めて、いちばん長いものを採用（「X1」のようなゴミを避ける）
+function pickNoComma(text){
+  const all = [...text.matchAll(/[xX×] *(\d{1,6})/g)].map(m => m[1]);
+  return all.length ? longest(all) : null;
+}
+
+/* 1枚の下ごしらえ済み画像から数を読む。
+   - カンマ付きで読めたら、それで確定
+   - カンマなし（999以下）のときは、数字の後ろの「を」が 5 などに化けて
+     末尾にくっつくことがある（例：340を → 3405）。そこで 2回目は文字の
+     絞り込みなしで読み直し、数字が何けたあるかを確かめて、それに合わせて切る */
+async function readNumber(w, canvas){
+  await w.setParameters({ tessedit_char_whitelist: WHITELIST });
+  const t1 = (await w.recognize(canvas)).data.text;
+  const c = pickComma(t1);
+  if (c !== null) return c;
+  const d = pickNoComma(t1);
+  if (d === null) return null;
+  await w.setParameters({ tessedit_char_whitelist: '' });
+  const t2 = (await w.recognize(canvas)).data.text;
+  const cands = [...t2.matchAll(/[xX×] ?(\d{1,3})(?!\d)/g)].map(m => m[1]).filter(r => d.startsWith(r));
+  if (cands.length) return parseInt(longest(cands), 10);
+  return parseInt(d.slice(0, 3), 10);   // 2回目で分からなければ、先頭3けたまでにする
 }
 
 async function recognizeFile(file){
@@ -440,8 +470,7 @@ async function recognizeFile(file){
   const img = await loadImage(file);
   // まず下 45% を読む。ダメなら下 70%、それでもダメなら全体
   for (const r of [0.55, 0.30, 0]){
-    const { data: d } = await w.recognize(preprocess(img, r));
-    const n = pickNumber(d.text);
+    const n = await readNumber(w, preprocess(img, r));
     if (n !== null) return { value:n, img };
   }
   return { value:null, img };
@@ -583,6 +612,9 @@ function render(){
   $('weeklabel').textContent = `第${weekNo(curMon)}週　${fmtMD(curMon)}(月) 〜 ${fmtMD(addDays(curMon,6))}(日)`;
   $('prevW').disabled = curMon <= BASE_DATE;
   $('memo').value = w.memo || '';
+  $('camp').checked = !!w.camp;
+  $('fieldW').checked = w.field === 'ワカクサ';
+  $('fieldEX').checked = w.field === 'ワカクサEX';
   $('undo').disabled = undoStack.length === 0;
 }
 
@@ -599,6 +631,12 @@ function editCell(d, idx){
 }
 
 $('memo').addEventListener('input', e => { week(curMon).memo = e.target.value; save(); });
+$('camp').addEventListener('change', e => { week(curMon).camp = e.target.checked; save(); });
+// フィールドはどちらか片方だけ。片方をチェックすると、もう片方は外れる
+[$('fieldW'), $('fieldEX')].forEach(cb => cb.addEventListener('change', e => {
+  week(curMon).field = e.target.checked ? e.target.dataset.field : '';
+  save(); render();
+}));
 $('prevW').onclick = () => { curMon = addDays(curMon, -7); render(); };
 $('nextW').onclick = () => { curMon = addDays(curMon, 7); render(); };
 $('undo').onclick = () => { if (!undoStack.length) return; data = JSON.parse(undoStack.pop()); save(); render(); };
@@ -619,7 +657,8 @@ $('copyTsv').onclick = async () => {
     const cells = Array.from({length:maxLen},(_,c)=> c<arr.length ? arr[c] : '');
     rows.push([DOW[i], ...cells, arr.length?t:'', arr.length||'', arr.length?Math.round(t/arr.length*100)/100:'']);
   });
-  rows.push([w.memo||'', ...Array(maxLen).fill(''), gC?gT:'', gC||'', gC?Math.round(gT/gC*100)/100:'']);
+  const tags = [w.field||'', w.camp?'キャンプチケットあり':'', w.memo||''].filter(Boolean).join(' / ');
+  rows.push([tags, ...Array(maxLen).fill(''), gC?gT:'', gC||'', gC?Math.round(gT/gC*100)/100:'']);
   const tsv = rows.map(r=>r.join('\t')).join('\n');
   try{ await navigator.clipboard.writeText(tsv); alert('コピーしました。スプレッドシートの左上のマスを選んで貼り付けてください。'); }
   catch(e){ prompt('コピーできませんでした。この中身を手でコピーしてください。', tsv); }
@@ -679,6 +718,24 @@ async function drawTableImage(){
   // 週のラベル
   ctx.fillStyle = '#8e5a75'; ctx.font = font(16,700);
   ctx.fillText(`第${weekNo(curMon)}週　${fmtMD(curMon)}(月) 〜 ${fmtMD(addDays(curMon,6))}(日)`, PAD+tw+20, 60);
+
+  // ---- 右上のバッジ：フィールド名（色つき）と、キャンプチケットあり（白ぬき） ----
+  {
+    const badges = [];
+    if (w.field) badges.push({ text: w.field, fill: '#c43d74', ink: '#fff' });
+    if (w.camp)  badges.push({ text: 'キャンプチケットあり', fill: '#fff', ink: '#c43d74' });
+    ctx.font = font(17); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    let bx = W - PAD;                                   // 右端から左へ並べていく
+    for (const b of badges.reverse()){
+      const bw = ctx.measureText(b.text).width + 36, bh = 40;
+      bx -= bw;
+      ctx.fillStyle = b.fill; ctx.beginPath(); ctx.roundRect(bx, 40, bw, bh, 20); ctx.fill();
+      ctx.strokeStyle = '#c43d74'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.fillStyle = b.ink; ctx.fillText(b.text, bx + bw/2, 60 + 1);
+      bx -= 12;
+    }
+    ctx.textAlign = 'left';
+  }
 
   // ---- 表 ----
   const colX = i => PAD + DAYW + COLW*i;                 // i 列目（0始まり）の左端
