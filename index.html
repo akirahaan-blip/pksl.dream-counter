@@ -263,8 +263,11 @@ button.danger,button.mini.danger{background:var(--danger);color:#fff}
   <div class="tblwrap"><table class="tbl" id="tbl"></table></div>
   <p class="note">数字のマスをタップすると、直したり消したりできます。</p>
 
+  <!-- キャンプチケットとフィールドは別の行に分ける（スマホで横に並ぶと見づらいため） -->
   <div class="opts">
     <label class="chk"><input type="checkbox" id="camp"> キャンプチケットあり</label>
+  </div>
+  <div class="opts" style="margin-top:6px">
     <span class="small lbl">フィールド：</span>
     <label class="chk"><input type="checkbox" id="fieldW" data-field="ワカクサ"> ワカクサ</label>
     <label class="chk"><input type="checkbox" id="fieldEX" data-field="ワカクサEX"> ワカクサEX</label>
