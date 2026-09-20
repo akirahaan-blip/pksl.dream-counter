@@ -161,6 +161,23 @@ button.danger,button.mini.danger{background:var(--danger);color:#fff}
 .chip.warn{background:#fff1d6;color:var(--warn)}
 @media (prefers-color-scheme: dark){ .chip.warn{background:#4d3a12} }
 
+/* ===== デカマゴを数える ===== */
+.egg-big{
+  width:100%;font-size:20px;padding:16px;border-radius:14px;line-height:1.3;
+  box-shadow:0 4px 0 rgba(0,0,0,.18);
+}
+.egg-big:active{transform:translateY(3px);box-shadow:0 1px 0 rgba(0,0,0,.18)}
+.egg-big .small{display:block;color:#fff;opacity:.9}
+.egg-days{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:12px}
+.egg-day{
+  display:flex;align-items:center;gap:6px;justify-content:space-between;
+  border:2px solid var(--line);border-radius:10px;padding:6px 8px;background:var(--bg);
+}
+.egg-day.today{border-color:var(--accent)}
+.egg-day .d{font-size:12.5px;font-weight:700;color:var(--sub);min-width:52px}
+.egg-day .n{font-size:18px;color:var(--accent);min-width:28px;text-align:center}
+.egg-day button{padding:4px 10px;font-size:16px;line-height:1}
+
 /* ===== 週の切りかえ ===== */
 .weeknav{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 .weeklabel{color:var(--sub);flex:1}
@@ -245,9 +262,18 @@ button.danger,button.mini.danger{background:var(--danger);color:#fff}
   </p>
 </section>
 
-<!-- ===== 2. 週の表 ===== -->
+<!-- ===== 2. デカマゴ ===== -->
 <section class="panel">
-  <h2>2. 週の表</h2>
+  <h2>2. デカマゴを数える</h2>
+  <p class="note" style="margin:0 0 10px">「とてもおおきなマゴのみ」を拾ってきた回数。スクショはいらないので、ボタンで数えます。</p>
+  <button class="egg-big" id="eggPlus">デカマゴ +1<span class="small" id="eggDate"></span></button>
+  <div class="egg-days" id="eggDays"></div>
+  <p class="note">日付ごとの − ＋ で直せます。「＋1」は上の「記録する日付」の日に入ります。</p>
+</section>
+
+<!-- ===== 3. 週の表 ===== -->
+<section class="panel">
+  <h2>3. 週の表</h2>
   <div class="weeknav">
     <button class="mini" id="prevW">◀ 前の週</button>
     <div class="weeklabel" id="weeklabel"></div>
@@ -258,6 +284,7 @@ button.danger,button.mini.danger{background:var(--danger);color:#fff}
     <div class="stat"><div class="k">週の合計</div><div class="v" id="sTotal">0</div></div>
     <div class="stat"><div class="k">発動回数</div><div class="v" id="sCount">0</div></div>
     <div class="stat"><div class="k">1回の平均</div><div class="v" id="sAvg">-</div></div>
+    <div class="stat"><div class="k">デカマゴ</div><div class="v" id="sEgg">0</div></div>
   </div>
 
   <div class="tblwrap"><table class="tbl" id="tbl"></table></div>
@@ -341,7 +368,13 @@ function load(){
   return { title:'ムシャーナドリームダービー', weeks:{} };
 }
 function save(){ localStorage.setItem(STORE_KEY, JSON.stringify(data)); }
-function week(mon){ return data.weeks[mon] || (data.weeks[mon] = { memo:'', days:{} }); }
+function week(mon){
+  const w = data.weeks[mon] || (data.weeks[mon] = { memo:'', days:{} });
+  if (!w.eggs) w.eggs = {};        // デカマゴの数 { 'YYYY-MM-DD': 回数 }（古いデータにも付け足す）
+  return w;
+}
+const eggOf = (w, d) => w.eggs[d] || 0;
+const eggSum = w => Object.values(w.eggs).reduce((a,b)=>a+b, 0);
 
 let curMon = mondayOf(todayKey() < BASE_DATE ? BASE_DATE : todayKey());   // いま表示している週
 const undoStack = [];   // 「1つ戻す」用。直前の data のコピーを積む
@@ -577,7 +610,7 @@ function render(){
   const thead = t.createTHead().insertRow();
   const th0 = document.createElement('th'); th0.className='day'; th0.textContent='曜日'; thead.appendChild(th0);
   for (let i = 1; i <= maxLen; i++){ const th = document.createElement('th'); th.textContent = i; thead.appendChild(th); }
-  for (const s of ['合計','発動回数','平均']){ const th = document.createElement('th'); th.className='sum'; th.textContent = s; thead.appendChild(th); }
+  for (const s of ['合計','発動回数','平均','デカマゴ']){ const th = document.createElement('th'); th.className='sum'; th.textContent = s; thead.appendChild(th); }
 
   const tb = t.createTBody();
   let gTotal = 0, gCount = 0;
@@ -599,6 +632,7 @@ function render(){
     tr.insertCell().className='sum'; tr.cells[tr.cells.length-1].textContent = arr.length ? fmtNum(total) : '';
     tr.insertCell().className='sum'; tr.cells[tr.cells.length-1].textContent = arr.length || '';
     tr.insertCell().className='sum'; tr.cells[tr.cells.length-1].textContent = arr.length ? fmtNum(Math.round(total/arr.length*100)/100) : '';
+    tr.insertCell().className='sum'; tr.cells[tr.cells.length-1].textContent = eggOf(w, d) || '';
   });
   // 週の合計行
   const tr = tb.insertRow(); tr.className='total';
@@ -607,6 +641,10 @@ function render(){
   tr.insertCell().textContent = gCount ? fmtNum(gTotal) : '';
   tr.insertCell().textContent = gCount || '';
   tr.insertCell().textContent = gCount ? fmtNum(Math.round(gTotal/gCount*100)/100) : '';
+  tr.insertCell().textContent = eggSum(w) || '';
+
+  $('sEgg').textContent = eggSum(w);
+  renderEggs();
 
   $('sTotal').textContent = fmtNum(gTotal);
   $('sCount').textContent = gCount;
@@ -634,6 +672,33 @@ function editCell(d, idx){
 }
 
 $('memo').addEventListener('input', e => { week(curMon).memo = e.target.value; save(); });
+
+/* ---------- デカマゴ ---------- */
+function addEgg(d, n){
+  if (!d || d < BASE_DATE) return;
+  snapshot();
+  const w = week(mondayOf(d));
+  const v = Math.max(0, eggOf(w, d) + n);
+  if (v) w.eggs[d] = v; else delete w.eggs[d];
+  save(); curMon = mondayOf(d); render();
+}
+function renderEggs(){
+  const w = week(curMon), box = $('eggDays'), today = todayKey();
+  box.innerHTML = '';
+  for (let i = 0; i < 7; i++){
+    const d = addDays(curMon, i);
+    const el = document.createElement('div'); el.className = 'egg-day' + (d === today ? ' today' : '');
+    el.innerHTML = `<span class="d">${DOW[i]} ${fmtMD(d)}</span><button class="mini" aria-label="1つ減らす">−</button><span class="n">${eggOf(w, d)}</span><button class="mini" aria-label="1つ増やす">＋</button>`;
+    const [minus, plus] = el.querySelectorAll('button');
+    minus.onclick = () => addEgg(d, -1);
+    plus.onclick  = () => addEgg(d, +1);
+    box.appendChild(el);
+  }
+  const dk = dateEl.value; const di = dk ? toDate(dk).getDay() : 0;
+  $('eggDate').textContent = dk ? `${fmtMD(dk)}(${DOW[(di+6)%7]}) に入れる` : '';
+}
+$('eggPlus').onclick = () => addEgg(dateEl.value, +1);
+dateEl.addEventListener('change', renderEggs);
 $('camp').addEventListener('change', e => { week(curMon).camp = e.target.checked; save(); });
 // フィールドはどちらか片方だけ。片方をチェックすると、もう片方は外れる
 [$('fieldW'), $('fieldEX')].forEach(cb => cb.addEventListener('change', e => {
@@ -653,15 +718,15 @@ $('copyTsv').onclick = async () => {
   const w = week(curMon);
   const days = Array.from({length:7}, (_,i) => addDays(curMon, i));
   const maxLen = Math.max(MIN_COLS, ...days.map(d => (w.days[d]||[]).length));
-  const rows = [[data.title], ['', ...Array.from({length:maxLen},(_,i)=>i+1), '合計','発動回数','平均']];
+  const rows = [[data.title], ['', ...Array.from({length:maxLen},(_,i)=>i+1), '合計','発動回数','平均','デカマゴ']];
   let gT=0,gC=0;
   days.forEach((d,i)=>{
     const arr = w.days[d]||[]; const t = arr.reduce((a,b)=>a+b,0); gT+=t; gC+=arr.length;
     const cells = Array.from({length:maxLen},(_,c)=> c<arr.length ? arr[c] : '');
-    rows.push([DOW[i], ...cells, arr.length?t:'', arr.length||'', arr.length?Math.round(t/arr.length*100)/100:'']);
+    rows.push([DOW[i], ...cells, arr.length?t:'', arr.length||'', arr.length?Math.round(t/arr.length*100)/100:'', eggOf(w,d)||'']);
   });
   const tags = [w.field||'', w.camp?'キャンプチケットあり':'', w.memo||''].filter(Boolean).join(' / ');
-  rows.push([tags, ...Array(maxLen).fill(''), gC?gT:'', gC||'', gC?Math.round(gT/gC*100)/100:'']);
+  rows.push([tags, ...Array(maxLen).fill(''), gC?gT:'', gC||'', gC?Math.round(gT/gC*100)/100:'', eggSum(w)||'']);
   const tsv = rows.map(r=>r.join('\t')).join('\n');
   try{ await navigator.clipboard.writeText(tsv); alert('コピーしました。スプレッドシートの左上のマスを選んで貼り付けてください。'); }
   catch(e){ prompt('コピーできませんでした。この中身を手でコピーしてください。', tsv); }
@@ -685,7 +750,7 @@ async function drawTableImage(){
 
   // ---- 大きさを決める ----
   const PAD = 40, DAYW = 96, COLW = 104, SUMW = 118, ROWH = 46, HEADH = 44;
-  const W = PAD*2 + DAYW + COLW*maxLen + SUMW*3;
+  const W = PAD*2 + DAYW + COLW*maxLen + SUMW*4;   // 合計・発動回数・平均・デカマゴ
   const TOP = 150;                              // 表が始まる高さ（上にタイトル）
   const H = TOP + HEADH + ROWH*8 + 90;          // 7日＋週計の行、下にまとめ
   const c = document.createElement('canvas'); c.width = W; c.height = H;
@@ -755,7 +820,7 @@ async function drawTableImage(){
   let y = TOP;
   cell(PAD, y, DAYW, HEADH, 'rgba(233,183,207,.75)', '曜日', '#3d1b2c', 'center', font(15,700));
   for (let i = 0; i < maxLen; i++) cell(colX(i), y, COLW, HEADH, 'rgba(233,183,207,.75)', i+1, '#3d1b2c', 'center', font(15,700));
-  ['合計','発動回数','平均'].forEach((t,i) => cell(sumX(i), y, SUMW, HEADH, 'rgba(233,183,207,.75)', t, '#c43d74', 'center', font(15,700)));
+  ['合計','発動回数','平均','デカマゴ'].forEach((t,i) => cell(sumX(i), y, SUMW, HEADH, 'rgba(233,183,207,.75)', t, '#c43d74', 'center', font(15,700)));
   y += HEADH;
   let gT = 0, gC = 0;
   days.forEach((d, i) => {
@@ -767,6 +832,7 @@ async function drawTableImage(){
     cell(sumX(0), y, SUMW, ROWH, 'rgba(255,225,238,.6)', arr.length ? fmtNum(t) : '', '#c43d74');
     cell(sumX(1), y, SUMW, ROWH, 'rgba(255,225,238,.6)', arr.length || '', '#c43d74');
     cell(sumX(2), y, SUMW, ROWH, 'rgba(255,225,238,.6)', arr.length ? fmtNum(Math.round(t/arr.length*100)/100) : '', '#c43d74');
+    cell(sumX(3), y, SUMW, ROWH, 'rgba(255,225,238,.6)', eggOf(w, d) || '', '#c43d74');
     y += ROWH;
   });
   // 週計の行（左の広いマスにはメモを書く）
@@ -775,11 +841,12 @@ async function drawTableImage(){
   cell(sumX(0), y, SUMW, ROWH, 'rgba(233,183,207,.75)', gC ? fmtNum(gT) : '', '#3d1b2c');
   cell(sumX(1), y, SUMW, ROWH, 'rgba(233,183,207,.75)', gC || '', '#3d1b2c');
   cell(sumX(2), y, SUMW, ROWH, 'rgba(233,183,207,.75)', gC ? fmtNum(Math.round(gT/gC*100)/100) : '', '#3d1b2c');
+  cell(sumX(3), y, SUMW, ROWH, 'rgba(233,183,207,.75)', eggSum(w) || '', '#3d1b2c');
   y += ROWH;
 
   // ---- 下のまとめ ----
   ctx.textAlign = 'left'; ctx.fillStyle = '#c43d74'; ctx.font = font(18);
-  ctx.fillText(`週の合計 ${fmtNum(gT)}　／　発動 ${gC} 回　／　1回の平均 ${gC ? fmtNum(Math.round(gT/gC*100)/100) : '-'}`, PAD, y + 40);
+  ctx.fillText(`週の合計 ${fmtNum(gT)}　／　発動 ${gC} 回　／　1回の平均 ${gC ? fmtNum(Math.round(gT/gC*100)/100) : '-'}　／　デカマゴ ${eggSum(w)} 個`, PAD, y + 40);
   return c;
 }
 
