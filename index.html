@@ -248,6 +248,7 @@ button.danger,button.mini.danger{background:var(--danger);color:#fff}
     <span class="small" style="color:var(--sub)">記録する日付：</span>
     <input type="date" id="date">
     <button class="mini" id="todayBtn">今日にする</button>
+    <span class="small" style="color:var(--sub)">（朝4時で日付が変わります）</span>
   </div>
 
   <div class="results" id="results"></div>
@@ -346,7 +347,9 @@ const DOW = ['月','火','水','木','金','土','日'];
 const toDate = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d, 12); };
 const toKey  = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const addDays = (s, n) => { const d = toDate(s); d.setDate(d.getDate()+n); return toKey(d); };
-const todayKey = () => toKey(new Date());
+// 「今日」はポケスリの日付切り替え（朝4時）に合わせる。深夜0時〜3時59分は前の日あつかい
+const DAY_SWITCH_HOUR = 4;
+const todayKey = () => { const d = new Date(); d.setHours(d.getHours() - DAY_SWITCH_HOUR); return toKey(d); };
 // その日が入る週の月曜日
 function mondayOf(s){
   const d = toDate(s);
